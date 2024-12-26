@@ -1,35 +1,45 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/irgolic/AutoPR/main/trigger_schema.json
+on:
+  push:
+    branches:
+      - main
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [labeled]
 
-triggers:
-  - label_substring: summarize
-    on_issue: false
-    on_pull_request: true
-    run: summarize_pr
-  - branch_name: main
-    run: generate_readme_summaries
-    parameters:
-      FILE_SUMMARY_PROMPT: |
-        Write an executive summary of this file, intended for someone seeing it for the first time.
-        Don't explain simple or trivial things like imports, but do explain what the purpose of the file is.
-        Be short and concise, especially if the file is empty.
-        Respond in 1-10 bullet points, prefixed with emojis, with five spaces at the end of each line.
-      FILE_SUMMARY_INSTRUCTIONS: |
-        Respond in 1-10 bullet points, prefixed of emojis. Try to pick contextually relevant emojis.
-        Be short and concise.
-        An example of the structure I'm expecting:
-        ~~~
-        💧 line item 1     
-        🚚 line item 2     
-        ~~~
-        PUT FIVE SPACES ON THE END OF EACH ONLINE.
-      FOLDER_SUMMARY_PROMPT: |
-        Write a high level overview of this folder, intended for someone seeing it for the first time.
-        Don't explain simple or trivial things like imports, but do explain what the purpose is of the contents of the folder.
-        Be high-level, and very concise.
-      FOLDER_SUMMARY_INSTRUCTIONS: |
-        Be very concise, and respond in the form of a short paragraph (max 3 sentences).
-      IGNORE_FILES:
-        - website
-        - .github
-        - .autopr
-        - tests
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  autopr:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Install jq
+      run: sudo apt-get install jq
+    - name: Check if label was added by a collaborator
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        is_collaborator=$(curl -s -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/${{ github.repository }}/collaborators/${{ github.event.sender.login }}" | jq -r '.message')
+
+        if [ "$is_collaborator" == "Not Found" ]; then
+          echo "Label not added by a collaborator. Skipping action."
+          exit 78
+        fi
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        ref: main
+        fetch-depth: 1
+    - name: AutoPR
+      uses: irgolic/AutoPR@main
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        base_branch: main
